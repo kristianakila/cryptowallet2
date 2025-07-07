@@ -14,9 +14,9 @@ const TONAPI_BASE = "https://tonapi.io/v2";
 
 // ✅ Обработка депозита
 app.post("/api/ton/deposit", async (req, res) => {
-  const { userId, walletAddress, amount, intentId } = req.body;
+  const { userId, walletAddress, amount, txIntentId } = req.body;
 
-  if (!userId || !walletAddress || !amount || !intentId) {
+  if (!userId || !walletAddress || !amount || !txIntentId) {
     console.warn("❌ Не хватает параметров", req.body);
     return res.status(400).json({ error: "Missing parameters" });
   }
@@ -50,7 +50,7 @@ app.post("/api/ton/deposit", async (req, res) => {
       );
     });
 
-    const txRef = db.collection("transactions").doc(intentId);
+    const txRef = db.collection("transactions").doc(txIntentId);
     const userRef = db.collection("telegramUsers").doc(userId);
 
     if (!matched) {
@@ -63,7 +63,7 @@ app.post("/api/ton/deposit", async (req, res) => {
         timestamp: new Date(),
       });
 
-      console.log(`🕐 Pending сохранён: ${intentId}`);
+      console.log(`🕐 Pending сохранён: ${txIntentId}`);
       return res.status(200).json({
         status: "pending",
         message: "Транзакция пока не найдена. Повторная проверка позже.",
@@ -100,7 +100,7 @@ app.post("/api/ton/deposit", async (req, res) => {
   }
 });
 
-// 🔍 Проверка статуса по intentId
+// 🔍 Проверка статуса по txIntentId
 app.post("/api/ton/status", async (req, res) => {
   const { txIntentId } = req.body;
 
@@ -153,7 +153,7 @@ cron.schedule("*/2 * * * *", async () => {
 
   for (const docSnap of pendingTxsSnap.docs) {
     const tx = docSnap.data();
-    const intentId = docSnap.id;
+    const txIntentId = docSnap.id;
 
     const matched = transactions.find((txData) => {
       const incoming = txData.in_msg;
@@ -181,13 +181,13 @@ cron.schedule("*/2 * * * *", async () => {
       });
 
       // Обновляем статус транзакции
-      await db.collection("transactions").doc(intentId).update({
+      await db.collection("transactions").doc(txIntentId).update({
         status: "success",
         txHash: matched.hash,
         updatedAt: new Date(),
       });
 
-      console.log(`✅ Обновлена транзакция: ${intentId}`);
+      console.log(`✅ Обновлена транзакция: ${txIntentId}`);
     }
   }
 
@@ -204,4 +204,5 @@ app.get("/ping", (req, res) => {
 // 🚀 Запуск сервера
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => console.log(`🚀 Server started on port ${PORT}`));
+
 
