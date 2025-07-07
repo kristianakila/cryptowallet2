@@ -100,6 +100,30 @@ app.post("/api/ton/deposit", async (req, res) => {
   }
 });
 
+// 🔍 Проверка статуса по intentId
+app.post("/api/ton/status", async (req, res) => {
+  const { txIntentId } = req.body;
+
+  if (!txIntentId) {
+    return res.status(400).json({ error: "txIntentId is required" });
+  }
+
+  try {
+    const txSnap = await db.collection("transactions").doc(txIntentId).get();
+
+    if (!txSnap.exists) {
+      return res.status(404).json({ status: "not_found" });
+    }
+
+    const data = txSnap.data();
+    return res.json({ status: data.status || "pending" });
+  } catch (err) {
+    console.error("Ошибка проверки статуса транзакции:", err.message);
+    return res.status(500).json({ error: "Ошибка сервера" });
+  }
+});
+
+
 // ✅ Проверка в фоне всех pending транзакций
 cron.schedule("*/2 * * * *", async () => {
   console.log("⏱️ Проверка ожидающих транзакций...");
