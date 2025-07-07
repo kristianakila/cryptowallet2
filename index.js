@@ -50,20 +50,23 @@ app.post("/api/ton/deposit", async (req, res) => {
     const transactions = txResponse.data.transactions;
 
     const matched = transactions.find((tx) => {
-      const incoming = tx.in_msg;
-      const value = parseInt(incoming?.value || "0");
-      const expected = Math.round(amountNum * 1e9);
+  const incoming = tx.in_msg;
+  const value = parseInt(incoming?.value || "0");
+  const expected = Math.round(amountNum * 1e9);
 
-      console.log(
-        `🔍 TX Check: from ${incoming?.source} → ${walletAddress}, amount: ${value} === ${expected}`
-      );
+  const sender = incoming?.source?.address;
 
-      return (
-        incoming &&
-        incoming.source === walletAddress &&
-        value === expected
-      );
-    });
+  console.log(
+    `🔍 TX Check: from ${sender} → ${walletAddress}, amount: ${value} === ${expected}`
+  );
+
+  return (
+    incoming &&
+    sender === walletAddress &&
+    value === expected
+  );
+});
+
 
     const txRef = db.collection("transactions").doc(txIntentId);
     const userRef = db.collection("telegramUsers").doc(userId);
@@ -171,16 +174,19 @@ cron.schedule("*/2 * * * *", async () => {
     const txIntentId = docSnap.id;
 
     const matched = transactions.find((txData) => {
-      const incoming = txData.in_msg;
-      const value = parseInt(incoming?.value || "0");
-      const expected = Math.round(tx.amount * 1e9);
+  const incoming = txData.in_msg;
+  const value = parseInt(incoming?.value || "0");
+  const expected = Math.round(tx.amount * 1e9);
 
-      return (
-        incoming &&
-        incoming.source === tx.wallet &&
-        value === expected
-      );
-    });
+  const sender = incoming?.source?.address;
+
+  return (
+    incoming &&
+    sender === tx.wallet &&
+    value === expected
+  );
+});
+
 
     if (matched) {
       const userRef = db.collection("telegramUsers").doc(tx.userId);
