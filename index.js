@@ -3,6 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import axios from "axios";
 import { db } from "./firebase.js";
+import cron from "node-cron";
 
 dotenv.config();
 const app = express();
@@ -94,3 +95,69 @@ app.post("/api/ton/deposit", async (req, res) => {
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => console.log(`Server started on port ${PORT}`));
 
+// 🔁 Каждые 2 минуты проверяем ожидающие платежи
+cron.schedule("*/2 * * * *", async () => {
+  console.log("⏱️ Проверка ожидающих транзакций...");
+
+  const pendingTxsSnap = await db.collection("transactions")
+    .where("status", "==", "pending")
+    .get();
+
+  if (pendingTxsSnap.empty) {
+    console.log("✅ Нет транзакций в ожидании.");
+    return;
+  }
+
+  const projectWallet = process.env.ADMIN_PROJECT_WALLET;
+  const token = process.env.TONAPI_KEY;
+
+  const txResponse = await axios.get(
+    `https://tonapi.io/v2/blockchain/accounts/${projectWallet}/transactions?limit=50`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }
+  );
+
+  const transactions = txResponse.data.transactions;
+
+  for (const docSnap of pendingTxsSnap.docs) {
+    const tx = docSnap.data();
+    const intentId = docSnap.id;
+
+    const matched = transactions.find((txData) => {
+      const incoming = txData.in_msg;
+      return (
+        incoming &&
+        incoming.source === tx.wallet &&
+        parseFloat(incoming.value) === parseFloat(tx.amount * 1e9)
+      );
+    });
+
+    if (matched) {
+      // ✅ Обновляем баланс
+      const userRef = db.collection("telegramUsers").doc(tx.userId);
+      await db.runTransaction(async (transaction) => {
+        const userSnap = await transaction.get(userRef);
+        const userData = userSnap.data();
+        const currentBalance = userData?.balance?.TON || 0;
+
+        transaction.update(userRef, {
+          [`balance.TON`]: currentBalance + tx.amount,
+        });
+      });
+
+      // ✅ Обновляем статус
+      await db.collection("transactions").doc(intentId).update({
+        status: "success",
+        txHash: matched.hash,
+        updatedAt: new Date(),
+      });
+
+      console.log(`✅ Обновлена транзакция: ${intentId}`);
+    }
+  }
+
+  console.log("🔁 Завершена проверка pending транзакций.");
+});
