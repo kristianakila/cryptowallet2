@@ -12,11 +12,12 @@ app.use(express.json());
 
 const TONAPI_BASE = "https://tonapi.io/v2";
 
-// ✅ Проверка и обработка депозита
+// ✅ Обработка депозита
 app.post("/api/ton/deposit", async (req, res) => {
   const { userId, walletAddress, amount, intentId } = req.body;
 
   if (!userId || !walletAddress || !amount || !intentId) {
+    console.warn("❌ Не хватает параметров", req.body);
     return res.status(400).json({ error: "Missing parameters" });
   }
 
@@ -24,7 +25,6 @@ app.post("/api/ton/deposit", async (req, res) => {
     const projectWallet = process.env.ADMIN_PROJECT_WALLET;
     const token = process.env.TONAPI_KEY;
 
-    // ✅ Получаем последние входящие транзакции на админский кошелек
     const txResponse = await axios.get(
       `${TONAPI_BASE}/blockchain/accounts/${projectWallet}/transactions?limit=30`,
       {
@@ -36,19 +36,26 @@ app.post("/api/ton/deposit", async (req, res) => {
 
     const transactions = txResponse.data.transactions;
 
-    // ✅ Ищем совпадение по отправителю и сумме
     const matched = transactions.find((tx) => {
       const incoming = tx.in_msg;
+      const value = parseInt(incoming?.value || "0");
+      const expected = Math.round(amount * 1e9);
+
+      console.log(`🔍 Проверка: from ${incoming?.source} → ${walletAddress}, amount: ${value} === ${expected}`);
+
       return (
         incoming &&
         incoming.source === walletAddress &&
-        parseFloat(incoming.value) === parseFloat(amount * 1e9)
+        value === expected
       );
     });
 
+    const txRef = db.collection("transactions").doc(intentId);
+    const userRef = db.collection("telegramUsers").doc(userId);
+
     if (!matched) {
-      // ✅ Транзакция не найдена — логируем и возвращаем "pending"
-      await db.collection("transactions").doc(intentId).set({
+      // Сохраняем в pending
+      await txRef.set({
         userId,
         wallet: walletAddress,
         amount,
@@ -56,53 +63,44 @@ app.post("/api/ton/deposit", async (req, res) => {
         timestamp: new Date(),
       });
 
+      console.log(`🕐 Pending сохранён: ${intentId}`);
       return res.status(200).json({
         status: "pending",
         message: "Транзакция пока не найдена. Повторная проверка позже.",
       });
     }
 
-    // ✅ Обновляем баланс в Firestore
-    const userRef = db.collection("telegramUsers").doc(userId);
+    // Пополнение баланса
     await db.runTransaction(async (transaction) => {
       const docSnap = await transaction.get(userRef);
-      const data = docSnap.data();
-      const current = data?.balance?.TON || 0;
+      const userData = docSnap.data();
+      const current = userData?.balance?.TON || 0;
 
       transaction.update(userRef, {
         [`balance.TON`]: current + amount,
       });
     });
 
-    // ✅ Логируем успех
-    await db.collection("transactions").doc(intentId).set({
+    // Сохраняем успешную транзакцию
+    await txRef.set({
       userId,
       wallet: walletAddress,
       amount,
-      txHash: matched.hash,
       status: "success",
+      txHash: matched.hash,
       timestamp: new Date(),
     });
 
-    return res.json({ status: "success", message: "Баланс успешно пополнен" });
+    console.log(`✅ Баланс пополнен: ${userId}, на ${amount} TON`);
+    return res.json({ status: "success", message: "Баланс пополнен" });
+
   } catch (err) {
-    console.error("TONAPI Error:", err.message);
-    return res.status(500).json({ error: "Ошибка при проверке TON транзакции" });
+    console.error("❌ TONAPI Error:", err.message);
+    return res.status(500).json({ error: "Ошибка проверки транзакции" });
   }
 });
 
-// 🔁 Сервер
-const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => console.log(`Server started on port ${PORT}`));
-
-app.get("/ping", (req, res) => {
-  res.set("Cache-Control", "no-store");
-  res.set("Content-Type", "text/plain");
-  res.send("pong");
-});
-
-
-// 🔁 Каждые 2 минуты проверяем ожидающие платежи
+// ✅ Проверка в фоне всех pending транзакций
 cron.schedule("*/2 * * * *", async () => {
   console.log("⏱️ Проверка ожидающих транзакций...");
 
@@ -119,7 +117,7 @@ cron.schedule("*/2 * * * *", async () => {
   const token = process.env.TONAPI_KEY;
 
   const txResponse = await axios.get(
-    `https://tonapi.io/v2/blockchain/accounts/${projectWallet}/transactions?limit=50`,
+    `${TONAPI_BASE}/blockchain/accounts/${projectWallet}/transactions?limit=50`,
     {
       headers: {
         Authorization: `Bearer ${token}`,
@@ -135,15 +133,18 @@ cron.schedule("*/2 * * * *", async () => {
 
     const matched = transactions.find((txData) => {
       const incoming = txData.in_msg;
+      const value = parseInt(incoming?.value || "0");
+      const expected = Math.round(tx.amount * 1e9);
+
       return (
         incoming &&
         incoming.source === tx.wallet &&
-        parseFloat(incoming.value) === parseFloat(tx.amount * 1e9)
+        value === expected
       );
     });
 
     if (matched) {
-      // ✅ Обновляем баланс
+      // Обновляем баланс
       const userRef = db.collection("telegramUsers").doc(tx.userId);
       await db.runTransaction(async (transaction) => {
         const userSnap = await transaction.get(userRef);
@@ -155,7 +156,7 @@ cron.schedule("*/2 * * * *", async () => {
         });
       });
 
-      // ✅ Обновляем статус
+      // Обновляем статус транзакции
       await db.collection("transactions").doc(intentId).update({
         status: "success",
         txHash: matched.hash,
@@ -168,3 +169,15 @@ cron.schedule("*/2 * * * *", async () => {
 
   console.log("🔁 Завершена проверка pending транзакций.");
 });
+
+// ➕ Ping endpoint
+app.get("/ping", (req, res) => {
+  res.set("Cache-Control", "no-store");
+  res.set("Content-Type", "text/plain");
+  res.send("pong");
+});
+
+// 🚀 Запуск сервера
+const PORT = process.env.PORT || 8080;
+app.listen(PORT, () => console.log(`🚀 Server started on port ${PORT}`));
+
