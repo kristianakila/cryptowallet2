@@ -16,13 +16,21 @@ const TONAPI_BASE = "https://tonapi.io/v2";
 app.post("/api/ton/deposit", async (req, res) => {
   const { userId, walletAddress, amount, txIntentId } = req.body;
 
-  console.log("📥 Запрос на /deposit:", req.body);
+  const amountNum = parseFloat(amount); // 👈 преобразуем
+
+  console.log("📥 Запрос на /deposit:", {
+    userId,
+    walletAddress,
+    amount,
+    txIntentId,
+    parsedAmount: amountNum,
+  });
 
   if (
     typeof userId !== "string" ||
     typeof walletAddress !== "string" ||
     typeof txIntentId !== "string" ||
-    typeof amount !== "number"
+    isNaN(amountNum)
   ) {
     console.warn("❌ Неверные параметры запроса:", req.body);
     return res.status(400).json({ error: "Invalid parameters" });
@@ -44,7 +52,7 @@ app.post("/api/ton/deposit", async (req, res) => {
     const matched = transactions.find((tx) => {
       const incoming = tx.in_msg;
       const value = parseInt(incoming?.value || "0");
-      const expected = Math.round(amount * 1e9);
+      const expected = Math.round(amountNum * 1e9);
 
       console.log(
         `🔍 TX Check: from ${incoming?.source} → ${walletAddress}, amount: ${value} === ${expected}`
@@ -64,7 +72,7 @@ app.post("/api/ton/deposit", async (req, res) => {
       await txRef.set({
         userId,
         wallet: walletAddress,
-        amount,
+        amount: amountNum,
         status: "pending",
         timestamp: new Date(),
       });
@@ -82,20 +90,20 @@ app.post("/api/ton/deposit", async (req, res) => {
       const current = userData?.balance?.TON || 0;
 
       transaction.update(userRef, {
-        [`balance.TON`]: current + amount,
+        [`balance.TON`]: current + amountNum,
       });
     });
 
     await txRef.set({
       userId,
       wallet: walletAddress,
-      amount,
+      amount: amountNum,
       status: "success",
       txHash: matched.hash,
       timestamp: new Date(),
     });
 
-    console.log(`✅ Баланс пополнен: ${userId}, на ${amount} TON`);
+    console.log(`✅ Баланс пополнен: ${userId}, на ${amountNum} TON`);
     return res.json({ status: "success", message: "Баланс пополнен" });
 
   } catch (err) {
@@ -103,6 +111,7 @@ app.post("/api/ton/deposit", async (req, res) => {
     return res.status(500).json({ error: "Ошибка при проверке транзакции" });
   }
 });
+
 
 // 🔍 Проверка статуса по intentId
 app.post("/api/ton/status", async (req, res) => {
