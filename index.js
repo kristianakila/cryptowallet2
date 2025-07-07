@@ -95,7 +95,12 @@ app.post("/api/ton/deposit", async (req, res) => {
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => console.log(`Server started on port ${PORT}`));
 
-app.get("/ping", (req, res) => res.send("pong"));
+app.get("/ping", (req, res) => {
+  res.set("Cache-Control", "no-store");
+  res.set("Content-Type", "text/plain");
+  res.send("pong");
+});
+
 
 // 🔁 Каждые 2 минуты проверяем ожидающие платежи
 cron.schedule("*/2 * * * *", async () => {
