@@ -11,11 +11,11 @@ app.use(express.json());
 
 const TONAPI_BASE = "https://tonapi.io/v2";
 
-// POST /api/ton/deposit
+// ✅ Проверка и обработка депозита
 app.post("/api/ton/deposit", async (req, res) => {
-  const { userId, walletAddress, amount } = req.body;
+  const { userId, walletAddress, amount, intentId } = req.body;
 
-  if (!userId || !walletAddress || !amount) {
+  if (!userId || !walletAddress || !amount || !intentId) {
     return res.status(400).json({ error: "Missing parameters" });
   }
 
@@ -23,6 +23,7 @@ app.post("/api/ton/deposit", async (req, res) => {
     const projectWallet = process.env.ADMIN_PROJECT_WALLET;
     const token = process.env.TONAPI_KEY;
 
+    // ✅ Получаем последние входящие транзакции на админский кошелек
     const txResponse = await axios.get(
       `${TONAPI_BASE}/blockchain/accounts/${projectWallet}/transactions?limit=30`,
       {
@@ -34,6 +35,7 @@ app.post("/api/ton/deposit", async (req, res) => {
 
     const transactions = txResponse.data.transactions;
 
+    // ✅ Ищем совпадение по отправителю и сумме
     const matched = transactions.find((tx) => {
       const incoming = tx.in_msg;
       return (
@@ -44,7 +46,8 @@ app.post("/api/ton/deposit", async (req, res) => {
     });
 
     if (!matched) {
-      await db.collection("transactions").add({
+      // ✅ Транзакция не найдена — логируем и возвращаем "pending"
+      await db.collection("transactions").doc(intentId).set({
         userId,
         wallet: walletAddress,
         amount,
@@ -58,6 +61,7 @@ app.post("/api/ton/deposit", async (req, res) => {
       });
     }
 
+    // ✅ Обновляем баланс в Firestore
     const userRef = db.collection("telegramUsers").doc(userId);
     await db.runTransaction(async (transaction) => {
       const docSnap = await transaction.get(userRef);
@@ -69,7 +73,8 @@ app.post("/api/ton/deposit", async (req, res) => {
       });
     });
 
-    await db.collection("transactions").add({
+    // ✅ Логируем успех
+    await db.collection("transactions").doc(intentId).set({
       userId,
       wallet: walletAddress,
       amount,
@@ -85,7 +90,7 @@ app.post("/api/ton/deposit", async (req, res) => {
   }
 });
 
-// Start
+// 🔁 Сервер
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => console.log(`Server started on port ${PORT}`));
 
