@@ -16,10 +16,11 @@ const TONAPI_BASE = "https://tonapi.io/v2";
 app.post("/api/ton/deposit", async (req, res) => {
   const { userId, walletAddress, amount, txIntentId } = req.body;
 
-  if (!userId || !walletAddress || !amount || !txIntentId) {
-    console.warn("❌ Не хватает параметров", req.body);
-    return res.status(400).json({ error: "Missing parameters" });
-  }
+if (typeof userId !== "string" || typeof walletAddress !== "string" || typeof txIntentId !== "string" || typeof amount !== "number") {
+  console.warn("❌ Неверные параметры", req.body);
+  return res.status(400).json({ error: "Invalid parameters" });
+}
+
 
   try {
     const projectWallet = process.env.ADMIN_PROJECT_WALLET;
