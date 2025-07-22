@@ -146,7 +146,7 @@ app.post("/api/ton/status", async (req, res) => {
 
 app.post("/api/update-today-rates", async (req, res) => {
   try {
-    const coinsSnap = await db.collection("coins").get(); // ⚠️ поменяй путь если другой
+    const coinsSnap = await db.collection("coin").get(); // ⚠️ поменяй путь если другой
     const today = moment().format("YYYY-MM-DD");
 
     let updatedCoins = [];
@@ -195,7 +195,7 @@ app.post("/api/update-today-rates", async (req, res) => {
 cron.schedule("0 0 * * *", async () => {
   console.log("📈 Запуск обновления курсов по дате...");
 
-  const coinsSnap = await db.collection("coins").get(); // замените 'coins' на ваш путь в Firestore
+  const coinsSnap = await db.collection("coin").get(); // замените 'coins' на ваш путь в Firestore
 
   const today = moment().format("YYYY-MM-DD");
 
