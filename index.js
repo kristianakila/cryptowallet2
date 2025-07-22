@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import axios from "axios";
 import { db } from "./firebase.js";
 import cron from "node-cron";
+import moment from "moment";
 
 dotenv.config();
 const app = express();
@@ -142,6 +143,51 @@ app.post("/api/ton/status", async (req, res) => {
     return res.status(500).json({ error: "Ошибка сервера" });
   }
 });
+
+
+// ✅ Обновление текущего курса из будущих
+cron.schedule("0 0 * * *", async () => {
+  console.log("📈 Запуск обновления курсов по дате...");
+
+  const coinsSnap = await db.collection("coins").get(); // замените 'coins' на ваш путь в Firestore
+
+  const today = moment().format("YYYY-MM-DD");
+
+  for (const doc of coinsSnap.docs) {
+    const data = doc.data();
+    const usdRates = data.usdRates || {};
+    const todayRate = usdRates[today];
+
+    if (todayRate) {
+      // уже установлен курс на сегодня — пропускаем
+      console.log(`✅ Монета ${data.title}: курс на ${today} уже установлен.`);
+      continue;
+    }
+
+    // ищем ближайшую будущую дату
+    const futureDates = Object.keys(usdRates)
+      .filter(date => date > today)
+      .sort();
+
+    if (futureDates.length > 0) {
+      const newRateDate = today;
+      const sourceDate = futureDates[0];
+      const newRateValue = usdRates[sourceDate];
+
+      usdRates[newRateDate] = newRateValue;
+
+      await db.collection("coins").doc(doc.id).update({ usdRates });
+
+      console.log(`🔁 Обновлён курс монеты ${data.title}: ${newRateValue} на ${newRateDate}`);
+    } else {
+      console.warn(`⚠️ Нет будущего курса для монеты: ${data.title}`);
+    }
+  }
+
+  console.log("✅ Обновление курсов завершено.");
+});
+
+
 
 // ✅ Проверка всех pending транзакций
 cron.schedule("*/2 * * * *", async () => {
