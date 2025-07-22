@@ -148,46 +148,50 @@ app.post("/api/ton/status", async (req, res) => {
 
 
 
-// ✅ Обновление текущего курса из будущих
-cron.schedule("0 0 * * *", async () => {
-  console.log("📈 Запуск обновления курсов по дате...");
+app.post("/api/update-today-rates", async (req, res) => {
+  try {
+    const coinsSnap = await db.collection("coins").get(); // ⚠️ поменяй путь если другой
+    const today = moment().format("YYYY-MM-DD");
 
-  const coinsSnap = await db.collection("coin").get(); // замените 'coins' на ваш путь в Firestore
+    let updatedCoins = [];
 
-  const today = moment().format("YYYY-MM-DD");
+    for (const doc of coinsSnap.docs) {
+      const data = doc.data();
+      const usdRates = data.usdRates || {};
+      const todayRate = usdRates[today];
 
-  for (const doc of coinsSnap.docs) {
-    const data = doc.data();
-    const usdRates = data.usdRates || {};
-    const todayRate = usdRates[today];
+      if (todayRate) {
+        // уже есть курс на сегодня
+        continue;
+      }
 
-    if (todayRate) {
-      // уже установлен курс на сегодня — пропускаем
-      console.log(✅ Монета ${data.title}: курс на ${today} уже установлен.);
-      continue;
+      const futureDates = Object.keys(usdRates)
+        .filter(date => date > today)
+        .sort();
+
+      if (futureDates.length > 0) {
+        const newRate = usdRates[futureDates[0]];
+        usdRates[today] = newRate;
+
+        await db.collection("coins").doc(doc.id).update({ usdRates });
+        updatedCoins.push({ title: data.title, rate: newRate });
+      }
     }
 
-    // ищем ближайшую будущую дату
-    const futureDates = Object.keys(usdRates)
-      .filter(date => date > today)
-      .sort();
-
-    if (futureDates.length > 0) {
-      const newRateDate = today;
-      const sourceDate = futureDates[0];
-      const newRateValue = usdRates[sourceDate];
-
-      usdRates[newRateDate] = newRateValue;
-
-      await db.collection("coins").doc(doc.id).update({ usdRates });
-
-      console.log(🔁 Обновлён курс монеты ${data.title}: ${newRateValue} на ${newRateDate});
-    } else {
-      console.warn(⚠️ Нет будущего курса для монеты: ${data.title});
+    if (updatedCoins.length === 0) {
+      return res.json({ success: true, message: "Нет монет для обновления курса." });
     }
+
+    return res.json({
+      success: true,
+      message: `Обновлены курсы ${updatedCoins.length} монет.`,
+      updatedCoins,
+    });
+
+  } catch (error) {
+    console.error("Ошибка при обновлении курсов:", error.message);
+    return res.status(500).json({ success: false, message: "Ошибка сервера" });
   }
-
-  console.log("✅ Обновление курсов завершено.");
 });
 
 
