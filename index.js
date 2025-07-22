@@ -150,14 +150,14 @@ app.post("/api/ton/status", async (req, res) => {
 
 app.post("/api/update-today-rates", async (req, res) => {
   try {
-    const coinsSnap = await db.collection("coins").get(); // ⚠️ поменяй путь если другой
+    const coinsSnap = await db.collection("coin").get(); // ⚠️ поменяй путь если другой
     const today = moment().format("YYYY-MM-DD");
 
     let updatedCoins = [];
 
     for (const doc of coinsSnap.docs) {
       const data = doc.data();
-      const usdRates = data.usdRates || {};
+      const usdRates = data.usdRate || {};
       const todayRate = usdRates[today];
 
       if (todayRate) {
@@ -173,7 +173,7 @@ app.post("/api/update-today-rates", async (req, res) => {
         const newRate = usdRates[futureDates[0]];
         usdRates[today] = newRate;
 
-        await db.collection("coins").doc(doc.id).update({ usdRates });
+        await db.collection("coin").doc(doc.id).update({ usdRate });
         updatedCoins.push({ title: data.title, rate: newRate });
       }
     }
