@@ -144,13 +144,15 @@ app.post("/api/ton/status", async (req, res) => {
   }
 });
 
-const COINS_COLLECTION = "coin"; // Проверь имя коллекции
+
+
+
 
 // ✅ Обновление текущего курса из будущих
 cron.schedule("0 0 * * *", async () => {
   console.log("📈 Запуск обновления курсов по дате...");
 
-  const coinsSnap = await db.collection(COINS_COLLECTION).get();
+  const coinsSnap = await db.collection("coin").get(); // замените 'coins' на ваш путь в Firestore
 
   const today = moment().format("YYYY-MM-DD");
 
@@ -160,10 +162,12 @@ cron.schedule("0 0 * * *", async () => {
     const todayRate = usdRates[today];
 
     if (todayRate) {
-      console.log(`✅ Монета ${data.title}: курс на ${today} уже установлен.`);
+      // уже установлен курс на сегодня — пропускаем
+      console.log(✅ Монета ${data.title}: курс на ${today} уже установлен.);
       continue;
     }
 
+    // ищем ближайшую будущую дату
     const futureDates = Object.keys(usdRates)
       .filter(date => date > today)
       .sort();
@@ -175,16 +179,116 @@ cron.schedule("0 0 * * *", async () => {
 
       usdRates[newRateDate] = newRateValue;
 
-      await db.collection(COINS_COLLECTION).doc(doc.id).update({ usdRates });
+      await db.collection("coins").doc(doc.id).update({ usdRates });
 
-      console.log(`🔁 Обновлён курс монеты ${data.title}: ${newRateValue} на ${newRateDate}`);
+      console.log(🔁 Обновлён курс монеты ${data.title}: ${newRateValue} на ${newRateDate});
     } else {
-      console.warn(`⚠️ Нет будущего курса для монеты: ${data.title}`);
+      console.warn(⚠️ Нет будущего курса для монеты: ${data.title});
     }
   }
 
   console.log("✅ Обновление курсов завершено.");
 });
+
+
+
+
+const COINS_COLLECTION = "coin"; // путь к коллекции монет
+
+// ✅ Обновление текущего курса usdRate из будущих usdRates
+cron.schedule("0 0 * * *", async () => {
+  console.log("📈 Запуск обновления курса usdRate по дате...");
+
+  const coinsSnap = await db.collection(COINS_COLLECTION).get();
+
+  const today = moment().format("YYYY-MM-DD");
+
+  for (const doc of coinsSnap.docs) {
+    const data = doc.data();
+    const usdRates = data.usdRates || {};
+    const usdRateToday = data.usdRate;
+    const usdRateDate = data.usdRateDate;
+
+    // Если курс уже обновлён сегодня, пропускаем
+    if (usdRateDate === today && usdRateToday != null) {
+      console.log(`✅ Монета ${data.title}: курс на ${today} уже установлен (${usdRateToday}).`);
+      continue;
+    }
+
+    // Ищем ближайшую будущую дату в usdRates
+    const futureDates = Object.keys(usdRates)
+      .filter(date => date >= today)
+      .sort();
+
+    if (futureDates.length > 0) {
+      const sourceDate = futureDates[0];
+      const newRateValue = usdRates[sourceDate];
+
+      // Обновляем поле usdRate и дату usdRateDate в документе
+      await db.collection(COINS_COLLECTION).doc(doc.id).update({
+        usdRate: newRateValue,
+        usdRateDate: today,
+      });
+
+      console.log(`🔁 Обновлён курс монеты ${data.title}: ${newRateValue} на ${today} (по дате ${sourceDate})`);
+    } else {
+      console.warn(`⚠️ Нет будущего курса для монеты: ${data.title}`);
+    }
+  }
+
+  console.log("✅ Обновление курса usdRate завершено.");
+});
+
+
+
+
+
+// ✅ Проверка всех pending транзакций
+cron.schedule("*/2 * * * *", async () => {
+  console.log("⏱️ Запуск проверки pending транзакций...");
+
+  const pendingTxsSnap = await db
+    .collection("transactions")
+    .where("status", "==", "pending")
+    .get();
+
+  if (pendingTxsSnap.empty) {
+    console.log("✅ Нет транзакций в ожидании.");
+    return;
+  }
+
+  const projectWallet = process.env.ADMIN_PROJECT_WALLET;
+  const token = process.env.TONAPI_KEY;
+
+  const txResponse = await axios.get(
+    ${TONAPI_BASE}/blockchain/accounts/${projectWallet}/transactions?limit=50,
+    {
+      headers: { Authorization: Bearer ${token} },
+    }
+  );
+
+  const transactions = txResponse.data.transactions;
+
+  for (const docSnap of pendingTxsSnap.docs) {
+    const tx = docSnap.data();
+    const txIntentId = docSnap.id;
+
+    const matched = transactions.find((txData) => {
+  const incoming = txData.in_msg;
+  const value = parseInt(incoming?.value || "0");
+  const expected = Math.round(tx.amount * 1e9);
+
+  const sender = incoming?.source?.address;
+
+  return (
+    incoming &&
+    sender === tx.wallet &&
+    value === expected
+  );
+});
+
+
+    
 
 
 
