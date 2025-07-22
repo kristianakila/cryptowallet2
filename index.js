@@ -150,31 +150,38 @@ app.post("/api/ton/status", async (req, res) => {
 
 app.post("/api/update-today-rates", async (req, res) => {
   try {
-    const coinsSnap = await db.collection("coin").get(); // ⚠️ поменяй путь если другой
+    console.log("Ручное обновление курса usdRate...");
+
+    const coinsSnap = await db.collection("coin").get();
     const today = moment().format("YYYY-MM-DD");
 
     let updatedCoins = [];
 
     for (const doc of coinsSnap.docs) {
       const data = doc.data();
-      const usdRates = data.usdRate || {};
-      const todayRate = usdRates[today];
+      const usdRates = data.usdRates || {};
+      const usdRateToday = data.usdRate;
+      const usdRateDate = data.usdRateDate;
 
-      if (todayRate) {
-        // уже есть курс на сегодня
+      if (usdRateDate === today && usdRateToday != null) {
+        // Уже обновлено
         continue;
       }
 
       const futureDates = Object.keys(usdRates)
-        .filter(date => date > today)
+        .filter(date => date >= today)
         .sort();
 
       if (futureDates.length > 0) {
-        const newRate = usdRates[futureDates[0]];
-        usdRates[today] = newRate;
+        const sourceDate = futureDates[0];
+        const newRateValue = usdRates[sourceDate];
 
-        await db.collection("coin").doc(doc.id).update({ usdRate });
-        updatedCoins.push({ title: data.title, rate: newRate });
+        await db.collection("coin").doc(doc.id).update({
+          usdRate: newRateValue,
+          usdRateDate: today,
+        });
+
+        updatedCoins.push({ title: data.title, newRateValue });
       }
     }
 
@@ -187,12 +194,12 @@ app.post("/api/update-today-rates", async (req, res) => {
       message: `Обновлены курсы ${updatedCoins.length} монет.`,
       updatedCoins,
     });
-
   } catch (error) {
-    console.error("Ошибка при обновлении курсов:", error.message);
+    console.error("Ошибка при ручном обновлении курсов:", error);
     return res.status(500).json({ success: false, message: "Ошибка сервера" });
   }
 });
+
 
 
 
@@ -215,7 +222,7 @@ cron.schedule("0 0 * * *", async () => {
 
     // Если курс уже обновлён сегодня, пропускаем
     if (usdRateDate === today && usdRateToday != null) {
-      console.log(`✅ Монета ${data.title}: курс на ${today} уже установлен (${usdRateToday}).`);
+console.log(`✅ Монета ${data.title}: курс на ${today} уже установлен.`);
       continue;
     }
 
@@ -242,58 +249,6 @@ cron.schedule("0 0 * * *", async () => {
 
   console.log("✅ Обновление курса usdRate завершено.");
 });
-
-
-
-
-
-// ✅ Проверка всех pending транзакций
-cron.schedule("*/2 * * * *", async () => {
-  console.log("⏱️ Запуск проверки pending транзакций...");
-
-  const pendingTxsSnap = await db
-    .collection("transactions")
-    .where("status", "==", "pending")
-    .get();
-
-  if (pendingTxsSnap.empty) {
-    console.log("✅ Нет транзакций в ожидании.");
-    return;
-  }
-
-  const projectWallet = process.env.ADMIN_PROJECT_WALLET;
-  const token = process.env.TONAPI_KEY;
-
-  const txResponse = await axios.get(
-    ${TONAPI_BASE}/blockchain/accounts/${projectWallet}/transactions?limit=50,
-    {
-      headers: { Authorization: Bearer ${token} },
-    }
-  );
-
-  const transactions = txResponse.data.transactions;
-
-  for (const docSnap of pendingTxsSnap.docs) {
-    const tx = docSnap.data();
-    const txIntentId = docSnap.id;
-
-    const matched = transactions.find((txData) => {
-  const incoming = txData.in_msg;
-  const value = parseInt(incoming?.value || "0");
-  const expected = Math.round(tx.amount * 1e9);
-
-  const sender = incoming?.source?.address;
-
-  return (
-    incoming &&
-    sender === tx.wallet &&
-    value === expected
-  );
-});
-
-
-    
-
 
 
 // ✅ Проверка всех pending транзакций
