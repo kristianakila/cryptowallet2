@@ -9,6 +9,17 @@ import moment from "moment";
 dotenv.config();
 const app = express();
 app.use(cors());
+// Явно выставляем CORS-заголовки на все запросы
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*"); // разрешить все домены (для теста)
+  res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(204); // ответ на preflight запрос
+  }
+  next();
+});
+
 app.use(express.json());
 
 const TONAPI_BASE = "https://tonapi.io/v2";
