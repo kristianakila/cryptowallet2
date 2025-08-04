@@ -247,10 +247,16 @@ console.log(`✅ Монета ${data.title}: курс на ${today} уже ус�
       const newRateValue = usdRates[sourceDate];
 
       // Обновляем поле usdRate и дату usdRateDate в документе
-      await db.collection(COINS_COLLECTION).doc(doc.id).update({
-        usdRate: newRateValue,
-        usdRateDate: today,
-      });
+   try {
+  await db.collection(COINS_COLLECTION).doc(doc.id).update({
+    usdRate: newRateValue,
+    usdRateDate: today,
+  });
+  console.log(`🔁 Обновлён курс монеты ${data.title}: ${newRateValue} на ${today} (по дате ${sourceDate})`);
+} catch (err) {
+  console.error(`❌ Ошибка при обновлении монеты ${data.title}:`, err);
+}
+
 
       console.log(`🔁 Обновлён курс монеты ${data.title}: ${newRateValue} на ${today} (по дате ${sourceDate})`);
     } else {
